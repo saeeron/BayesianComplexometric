@@ -13,7 +13,7 @@ from BayesianComplexometric.utils import _titr_simulate, _optim
 
 LT = np.array([2, 8])
 K = np.array([1e14, 1e12])
-MT_ = np.linspace(0.1,14,12)
+MT_ = np.linspace(0.1, 14, 12)
 
 y_ = _titr_simulate(MT_, LT, K, n_lig = 2)[:,0]
 
@@ -40,7 +40,7 @@ print(x)
 
 LT = np.array([2])
 K = np.array([1e14])
-MT_ = np.linspace(0.1,14,12)
+MT_ = np.linspace(0.1,14,12) 
 
 y_ = _titr_simulate(MT_, LT, K, n_lig = 1)
 

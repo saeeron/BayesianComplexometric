@@ -1,7 +1,7 @@
 import numpy as np 
 from scipy.optimize import root, root_scalar, fsolve, brentq
 from scipy import stats as st
-from scipy.optimize import dual_annealing 
+from scipy.optimize import dual_annealing, minimize
 from functools import partial
 
 def _spec_forward_1L(MT, LT, K, AL = None, KAL = None ):
@@ -129,34 +129,6 @@ def _titr_simulate(MT, LT, K, n_lig = 1, AL = None, KAL = None):
 		raise ValueError('accepted number of ligand classes: 1 or 2')
 
 
-def _resExp(y_obs, MT, LT, K, relative_err = 0.03):
-	# using analytical definition of normal distribution
-	LT = X[:2]
-	K = X[2:]
-	y_ = _titr_simulate(MT, LT, K, n_lig = 1, AL = None, KAL = None)
-
-	mu = y_ - y_obs  
-	  
-	cov = np.diag((y_obs * relative_err)**2)
-	cov_inv = np.diag(1/np.diag(cov))  
-	  
-	resExp = np.matmul(mu.reshape(1,-1), np.matmul(cov_inv, mu.reshape(-1,1))) # probalility is proportional to exp(-0.5*resExp)
-	  
-	
-	return resExp
-
-
-def _resExpInitM( MT_, MT, relative_err = 0.03):
-	# MT_ and MT are two initial metal concetrations. MT or true metal concentration whose pdf is to be known
-
-	mu = MT - MT0
-	cov = (MT * relative_err)**2
-	cov_inv = 1/cov  
-
-	resExp =  mu * cov_inv * mu  # probalility is proportional to exp(-0.5*resExp)
-
-	return resExp
-
 def _optim(y_obs, MT, lb, ub, S = None, LossFunc = 'Mfree', DeviationType = 'mse', n_lig = 1, AL = None, KAL = None, optimizerKW = {} ):
 	""" Single-point optimization based on a variety of loss functions (vdB/Ruzic, Scatchard)  """
 	if 'maxiter' in optimizerKW:
@@ -234,6 +206,7 @@ def _optim(y_obs, MT, lb, ub, S = None, LossFunc = 'Mfree', DeviationType = 'mse
 
 			return floss
 		
+	
 		ret = dual_annealing(func = objFunc, bounds = list(zip(lb,ub)), maxiter = maxiter, seed=2442)
 		return ret.x # optimized LT, K, and S
 
@@ -289,8 +262,10 @@ def _optim(y_obs, MT, lb, ub, S = None, LossFunc = 'Mfree', DeviationType = 'mse
 
 			return floss
 
+
 		ret = dual_annealing(func = objFunc, bounds = list(zip(lb,ub)), maxiter = maxiter, seed=2442)
-		return ret.x  # optimized LT, and K
+		return ret.x # optimized LT, K, and S
+	
 
 	if (S is None) and (AL is not None) and (KAL is not None):
 		# ACSV method, so y_obs is the current signal equal to [MAL] * S
@@ -415,10 +390,74 @@ def _optim(y_obs, MT, lb, ub, S = None, LossFunc = 'Mfree', DeviationType = 'mse
 		return ret.x   # optimized LT, and K
 
 
+def _resExp(y_obs, MT, LT, K, relative_err = 0.03):
+	# using analytical definition of normal distribution
+	LT = X[:2]
+	K = X[2:]
+	y_ = _titr_simulate(MT, LT, K, n_lig = 1, AL = None, KAL = None)
+
+	mu = y_ - y_obs  
+	  
+	cov = np.diag((y_obs * relative_err)**2)
+	cov_inv = np.diag(1/np.diag(cov))  
+	  
+	resExp = np.matmul(mu.reshape(1,-1), np.matmul(cov_inv, mu.reshape(-1,1))) # probalility is proportional to exp(-0.5*resExp)
+	  
+	
+	return resExp
+
+
+def _resExpInitM( MT_, MT, relative_err = 0.03):
+	# MT_ and MT are two initial metal concetrations. MT or true metal concentration whose pdf is to be known
+
+	mu = MT - MT0
+	cov = (MT * relative_err)**2
+	cov_inv = 1/cov  
+
+	resExp =  mu * cov_inv * mu  # probalility is proportional to exp(-0.5*resExp)
+
+	return resExp
+
 
 
 def _adjust_step():
 	pass
 
 
+def _adjustingOutOfRange(xp, lb, ub):
+	pass 
 
+
+
+def _mcmc(x0, MT, y_obs, n_lig, S = None, lb, ub, step0, niter = 60000, relative_err, AL = None, KAL = None):
+	""" x0 ::  initial parameters
+		MT ::  total metal concentration at titration points
+		y_obs :: signal from experiment"""
+
+	if (S is None) and not (len(step0) == len(x0) == len(lb) == len(ub) == 2 * n_lig + 1):
+		raise ValueError('This model requires {:d} value(s) for lower bound, upper bound, step0, and x0!'.format(2 * n_lig + 1))
+
+	if (S is not None) and not (len(step0) == len(x0) == len(lb) == len(ub) == 2 * n_lig):
+		raise ValueError('This model requires {:d} value(s) for lower bound, upper bound, step0, and x0!'.format(2 * n_lig))
+	
+	samples = np.zeros((niters+1, x0.size))
+	samples[0,:] = x0
+	NM = x0.size # number of parameters 
+	PPR_target = (1/2)**(1/NM)
+	PPR = np.ones((NM))
+	RR_opt = 0.766 # optimizal rejection rate
+
+	if (S is None) and (AL is None) and (KAL is None):
+		for i in range(niters):
+			if i==0:
+				LT_0 = x0[:2].copy()
+				K_0 = x0[2:].copy()
+				y_0 = _titr_simulate(MT, LT, K, n_lig, AL, KAL)
+				cov = np.diag((y_obs * relative_err)**2)
+				cov_inv = np.diag(1/np.diag(cov))  
+
+	if (S is not None) and (AL is None) and (KAL is None):
+
+	if (S is None) and (AL is not None) and (KAL is not None):
+
+	if (S is not None) and (AL is not None) and (KAL is not None):
