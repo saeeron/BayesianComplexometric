@@ -9,7 +9,7 @@ from scipy.optimize import dual_annealing
 from functools import partial
 
 
-from BayesianComplexometric.utils import _titr_simulate, _optim
+from BayesianComplexometric.utils import _titr_simulate, _optim, _mcmc
 
 LT = np.array([2, 8])
 K = np.array([1e14, 1e12])
@@ -31,10 +31,15 @@ plt.ylabel('free Metal [nM]')
 
 plt.show()
 """
-x = _optim(y_obs * 0.6, MT = MT_, lb = [1, 5, 13, 11], ub = [4, 10, 15, 14], S = 0.6, LossFunc = 'Scatchard', DeviationType = 'mae', n_lig = 2, AL = None, KAL = None, \
-			optimizerKW = {'maxiter' : 3000})
+#x = _optim(y_obs * 0.6, MT = MT_, lb = [1, 5, 13, 11 , 0.1], ub = [4, 10, 15, 14, 1], S = None, LossFunc = 'Gerringa', DeviationType = 'mse', n_lig = 2, AL = None, KAL = None, \
+#			optimizerKW = {'maxiter' : 2000})
 
-print(x)
+#print(x)
+
+x = np.array([1.9, 7.4, 13.8, 12.1,0.5])
+
+samples = _mcmc(x , MT_, y_obs,  [1, 5, 13, 11 , 0.1], [4, 10, 15, 14, 1], [0.01 , 0.01, 0.002, 0.002, 0.002], 0.03, S = None, AL = None, KAL = None, niter = 60000)
+
 
 """
 

@@ -406,6 +406,8 @@ def _resExp(y_obs, y_pred, relative_err = 0.03):
 
 def _adjust_step(titr_model, x, y_obs, step, RR, PPR_target, relative_err, RR_opt = 0.766):
 	# rejection rate
+	step = np.array(step)
+	step = step.copy()
 	PPR = np.ones((x.size)) 
 	if x.size == 2:
 		LT, K, S = _x_toLKS(x)
@@ -530,6 +532,10 @@ def _adjust_step(titr_model, x, y_obs, step, RR, PPR_target, relative_err, RR_op
 
 
 def _adjustOutOfRange(x, lb, ub):
+
+	lb = np.array(lb)
+	ub = np.array(ub)
+
 	if x.size != lb.size != ub.size:
 		raise ValueError('sizes of parameters and lower and upper bounds must be the same')
 	tmp = x.copy()
@@ -563,11 +569,11 @@ def _x_toLKS(x):
 	x = np.array(x)
 	if x.size == 2:
 		LT = x[0].copy()
-		K = x[1].copy()
+		K = 10**x[1].copy()
 		S = None
 	elif x.size == 3:
 		LT = x[0].copy()
-		K = x[1].copy()
+		K = 10**x[1].copy()
 		S = x[2].copy()
 	elif x.size == 4:
 		LT = x[:2].copy()
@@ -575,13 +581,15 @@ def _x_toLKS(x):
 		S = None
 	elif x.size == 5:
 		LT = x[:2].copy()
-		K = x[2:].copy()
+		K = 10**x[2:].copy()
 		S = x[-1].copy()
 	else:
 		raise ValueError('this functions accept an array with 2 to 5 elements')
 	return LT, K, S
 
 def _new_point(x, step):
+
+	step = np.array(step)
 	if x.size != step.size:
 		raise ValueError('the same number of steps must be known for the number of parameters')
 	xp = np.zeros_like(x)
@@ -608,9 +616,28 @@ def _new_point(x, step):
 
 
 def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL = None, niter = 60000):
-	""" x0 ::  initial parameters
+	""" x0 ::  initial parameters; with log-transformed Ks
 		MT ::  total metal concentration at titration points
 		y_obs :: signal from experiment"""
+
+	samples = np.zeros((niter+1, x0.size))
+	samples[0,:] = x0
+	NM = x0.size # number of parameters 
+	PPR_target = (1/2)**(1/NM)
+	RR_opt = 0.766 # optimizal rejection rate
+
+
+
+	if S is None:
+		LT_0, K_0, S_0 = _x_toLKS(x0)	
+	else:
+		LT_0, K_0, _ = _x_toLKS(x0)	
+		S_0 = S
+		y_0 = titr_model(LT_0, K_0, S_0)
+
+
+	n_lig = LT_0.size
+
 
 	if (S is None) and not (len(step0) == len(x0) == len(lb) == len(ub) == 2 * n_lig + 1):
 		raise ValueError('This model requires {:d} value(s) for lower bound, upper bound, step0, and x0!'.format(2 * n_lig + 1))
@@ -619,43 +646,32 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 		raise ValueError('This model requires {:d} value(s) for lower bound, upper bound, step0, and x0!'.format(2 * n_lig))
 	
 
-	samples = np.zeros((niters+1, x0.size))
-	samples[0,:] = x0
-	NM = x0.size # number of parameters 
-	PPR_target = (1/2)**(1/NM)
-	PPR = np.ones((NM))
-	RR_opt = 0.766 # optimizal rejection rate
 
-	n_lig = LT_0.size
+
 
 	if  (AL is None) and (KAL is None):
 		# method is ASV: M_free * S is the observed signal
 		titr_model  = lambda LT, K, S : S * _titr_simulate(MT, LT, K, n_lig, AL, KAL)[:,0]
-		for i in range(niters):
-			if i==0:
-				if S is None
-					LT_0, K_0, S_0 = _x_toLKS(x0)	
-				else:
-					LT_0, K_0, _ = _x_toLKS(x0)	
-
-				y_0 = titr_model(LT_0, K_0, S_0)
+		for i in range(1, niter):
 
 			if (i < 1000 and (i % 100) == 0) or (i >= 1000 and (i % 1000) == 0):
 				RR = (i - naccept) / i
-				step0 =  _adjust_step(titr_model, x0, y_obs, step0, RR, PPR_target, relative_err, RR_opt = 0.766)
-			# proposing a new point (x)
+				step0 =  _adjust_step(titr_model, x0, y_obs, step0, RR, PPR_target, relative_err, RR_opt)
+			# proposing a new point (x):
 			xp = _new_point(x0, step0)
-			# bouncing out-of-range back into the boundaries
+			# bouncing out-of-range back into the boundaries:
 			xp = _adjustOutOfRange(xp, lb, ub)
-			if S is None	
+			if S is None:	
 				LT_p, K_p, S_p = _x_toLKS(xp)
 			else:
 				LT_p, K_p, _ = _x_toLKS(xp)
+				S_p = S_0
+			
 			y_p = titr_model(LT_p, K_p, S_p)
 
 			resExp0 = _resExp(y_obs, y_0, relative_err)
 			resExpp = _resExp(y_obs, y_p, relative_err)
-			rho = min(1, np.array([np.exp(-0.5 * (resExp_p.item() - resExp_0.item()))]))
+			rho = min(1, np.array([np.exp(-0.5 * (resExp_p.item() - resExp_0.item()))]))  # we grab item to make sure the result is scalar
 			u = np.random.uniform()
 
 			if u < rho:
@@ -663,15 +679,15 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 				x0 = xp.copy()
 				y_0 = y_p.copy()
 
-			samples[i+1,:] = x0
+			samples[i,:] = x0
 
 
 	if  (AL is not None) and (KAL is not None):
-		# method is ASV: M_free * S is the observed signal
+		# method is ACSV: MAL * S is the observed signal
 		titr_model  = lambda LT, K, S: S * _titr_simulate(MT, LT, K, n_lig, AL, KAL)[:,2]
-		for i in range(niters):
+		for i in range(1, niter):
 			if i==0:
-				if S is None
+				if S is None:
 					LT_0, K_0, S_0 = _x_toLKS(x0)	
 				else:
 					LT_0, K_0, _ = _x_toLKS(x0)	
@@ -680,15 +696,16 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 
 			if (i < 1000 and (i % 100) == 0) or (i >= 1000 and (i % 1000) == 0):
 				RR = (i - naccept) / i
-				step0 =  _adjust_step(titr_model, x0, y_obs, step0, RR, PPR_target, relative_err, RR_opt = 0.766)
+				step0 =  _adjust_step(titr_model, x0, y_obs, step0, RR, PPR_target, relative_err, RR_opt )
 			# proposing a new point (x)
 			xp = _new_point(x0, step0)
 			# bouncing out-of-range back into the boundaries
 			xp = _adjustOutOfRange(xp, lb, ub)
-			if S is None	
+			if S is None:	
 				LT_p, K_p, S_p = _x_toLKS(xp)
 			else:
 				LT_p, K_p, _ = _x_toLKS(xp)
+				S_p = S_0
 			y_p = titr_model(LT_p, K_p, S_p)
 
 			resExp0 = _resExp(y_obs, y_0, relative_err)
@@ -701,5 +718,7 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 				x0 = xp.copy()
 				y_0 = y_p.copy()
 
-			samples[i+1,:] = x0
+			samples[i,:] = x0
+
+	return samples
 
