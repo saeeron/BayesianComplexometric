@@ -14,7 +14,6 @@ def _spec_forward_1L(MT, LT, K, AL = None, KAL = None ):
 
 	LT = LT / 1e9 # converting nano Molar to Molar
 	MT = MT / 1e9 # converting nano Molar to Molar
-	AL = AL / 1e9
 
 	if  ((AL is None) and (KAL is not None)) or ((AL is not None) and (KAL is None)):
 		raise ValueError('If the Method is ACSV, both KAL and AL need to be specified!') 
@@ -30,6 +29,7 @@ def _spec_forward_1L(MT, LT, K, AL = None, KAL = None ):
 		# method is ACSV
 		def objf(X):
 		# scalar function to be solved for the roots (X :: M_free) 
+			AL = AL / 1e9 # converting nano Molar to Molar
 			ML1 = (K[0]*LT[0]*X/1e9) / (1+K[0]*X/1e9)
 			MAL = (KAL[0]*AL[0]*X/1e9) / (1+KAL[0]*X/1e9)
 			return (MT - ML1 - MAL - X/1e9)
@@ -85,6 +85,7 @@ def _spec_forward_2L(MT, LT, K, AL = None, KAL = None):
 		# method is ACSV
 		def objf(X):
 		# scalar function to be solved for the roots (X :: M_free) 
+			AL = AL / 1e9 # converting nano Molar to Molar
 			ML1 = (K[0]*LT[0]*X/1e9) / (1+K[0]*X/1e9)
 			ML2 = (K[1]*LT[1]*X/1e9) / (1+K[1]*X/1e9)
 			MAL = (KAL[0]*AL[0]*X/1e9) / (1+KAL[0]*X/1e9)
@@ -157,13 +158,13 @@ def _optim(y_obs, MT, lb, ub, S = None, LossFunc = 'Mfree', DeviationType = 'mse
 		# we need to find S as well as ligand concentration and constant
 		def objFunc(X):
 			if n_lig == 1:
-				LT = X[0]	
-				K = 10**X[1]
-				S = X[2]
+				LT = X[:1]	
+				K = 10**X[1:2]
+				S = X[2:]
 			else:
 				LT = X[0:2]
 				K = 10**X[2:4]
-				S = X[4]
+				S = X[4:]
 
 			tmp = _titr_simulate(MT, LT, K, n_lig, AL, KAL ) 
 
@@ -214,8 +215,8 @@ def _optim(y_obs, MT, lb, ub, S = None, LossFunc = 'Mfree', DeviationType = 'mse
 		#ASV
 		def objFunc(X):
 			if n_lig == 1:
-				LT = X[0]	
-				K = 10**X[1]
+				LT = X[0:1]	
+				K = 10**X[1:2]
 
 			else:
 				LT = X[0:2]
@@ -271,8 +272,8 @@ def _optim(y_obs, MT, lb, ub, S = None, LossFunc = 'Mfree', DeviationType = 'mse
 		# ACSV method, so y_obs is the current signal equal to [MAL] * S
 		def objFunc(X):
 			if n_lig == 1:
-				LT = X[0]	
-				K = 10**X[1]
+				LT = X[0:1]	
+				K = 10**X[1:2]
 				S = X[2]
 			else:
 				LT = X[0:2]
@@ -326,15 +327,15 @@ def _optim(y_obs, MT, lb, ub, S = None, LossFunc = 'Mfree', DeviationType = 'mse
 			return floss
 
 		ret = dual_annealing(func = objFunc, bounds = list(zip(lb,ub)), maxiter = maxiter, seed=2442)
-		return ret.x   # optimized LT, K, and S
+		return ret.x  # optimized LT, K, and S
 
 
 	if (S is not None) and (AL is not None) and (KAL is not None):
 		def objFunc(X):
 	
 			if n_lig == 1:
-				LT = X[0]	
-				K = 10**X[1]
+				LT = X[0:1]	
+				K = 10**X[1:2]
 
 			else:
 				LT = X[0:2]
@@ -402,121 +403,49 @@ def _resExp(y_obs, y_pred, relative_err = 0.03):
 	
 	return resExp
 
+def _hyb_optim(y_obs,  MT, lb, ub, S, n_lig, AL, KAL):
+	# this hybrid loss function optimization when S is unknown
+
+	x = _optim(y_obs, MT, lb , ub, S, LossFunc = 'Gerringa', DeviationType = 'mse', n_lig = n_lig, AL = AL , KAL = KAL, optimizerKW = {'maxiter' : 100})
+	x_ = _optim(y_obs, MT, lb[:-1] , ub[:-1], S = x[-1], LossFunc = 'Scatchard', DeviationType = 'mse', n_lig = n_lig, AL = AL , KAL = KAL, optimizerKW = {'maxiter' : 100})
+	x[:-1] = x_
+
+	return x
 
 
-def _adjust_step(titr_model, x, y_obs, step, RR, PPR_target, relative_err, RR_opt = 0.766):
-	# rejection rate
+def _adjust_step(titr_model, x, S, y_obs, step, RR, PPR_target, relative_err, RR_opt = 0.766):
+
+	# titr_model is the titration model that returns the observable from parameters in x when they are parsed into KLS
 	step = np.array(step)
 	step = step.copy()
-	PPR = np.ones((x.size)) 
-	if x.size == 2:
-		LT, K, S = _x_toLKS(x)
-		y  = titr_model(LT , K, S)   # unperturbed
-		y_ = titr_model(LT + 0.5 * step[0], K, S)  # perturbed
+	PPR = np.ones_like(x)   # this is only calculated in a single adjustment but PPR_target is modified from the last known
+	if S is not None:
+		S = S.copy()
+	
+	for j in range(x.size):
+		x_ = x.copy()
+		x_[j] = x[j].copy() + 0.5 * step[j]
+		if S is None:
+			LT_, K_, S_ = _x_toLKS(x)
+			LT__, K__, S__ = _x_toLKS(x_)
+		else:
+			LT_, K_, _ = _x_toLKS(x)
+			LT__, K__, _ = _x_toLKS(x_)
+			S_ = S
+			S__ = S
+		y  = titr_model(LT_ , K_ , S_ )   # unperturbed
+		y_ = titr_model(LT__, K__, S__)  # perturbed
 		resExp = _resExp(y_obs, y, relative_err)
 		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[0] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-		
-		y_ = titr_model(MT, LT , 10**(np.log10(K) + 0.5 * step[1]) , S)  # perturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-
-		PPR[1] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-
-	if x.size == 3:
-		LT, K, S = _x_toLKS(x)
-		y  = titr_model(LT , K, S)   # unperturbed
-		y_ = titr_model(LT + 0.5 * step[0], K, S)  # perturbed
-		resExp = _resExp(y_obs, y, relative_err)
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[0] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-		
-		y_ = titr_model(LT , 10**(np.log10(K) + 0.5 * step[1]) , S)  # purturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[1] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-		
-
-		y_ = titr_model(LT , K , S + 0.5 * step[2])  # perturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[2] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-
-
-	if x.size == 4:
-		LT, K, S = _x_toLKS(x)
-		y  = titr_model(LT , K, S)   # unperturbed
-
-		LT_ = LT.copy()
-		LT_[0] = LT_[0] + 0.5 * step[0]
-		y_ = titr_model(LT_ , K, S)  # perturbed
-		resExp = _resExp(y_obs, y, relative_err)
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[0] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-		
-		LT_ = LT.copy()
-		LT_[1] = LT_[1] + 0.5 * step[1]
-
-		y_ = titr_model(LT_ , K , S)  # purturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[1] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-		
-		K_ = K.copy()
-		K_[0] = 10**(np.log10(K_[0]) + 0.5 * step[2])
-
-		y_ = titr_model(LT , K_ , S)  # perturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[2] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-
-		K_ = K.copy()
-		K_[1] = 10**(np.log10(K_[1]) + 0.5 * step[3])
-
-		y_ = titr_model(LT , K_ , S)  # perturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[3] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-
-
-	if x.size == 5:
-		LT, K, S = _x_toLKS(x)
-		y  = titr_model(LT , K, S)   # unperturbed
-
-		LT_ = LT.copy()
-		LT_[0] = LT_[0] + 0.5 * step[0]
-		y_ = titr_model(LT_ , K, S)  # perturbed
-		resExp = _resExp(y_obs, y, relative_err)
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[0] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-		
-		LT_ = LT.copy()
-		LT_[1] = LT_[1] + 0.5 * step[1]
-
-		y_ = titr_model(LT_ , K , S)  # purturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[1] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-		
-		K_ = K.copy()
-		K_[0] = 10**(np.log10(K_[0]) + 0.5 * step[2])
-
-		y_ = titr_model(LT , K_ , S)  # perturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[2] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-
-		K_ = K.copy()
-		K_[1] = 10**(np.log10(K_[1]) + 0.5 * step[3])
-
-		y_ = titr_model(LT , K_ , S)  # perturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[3] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-
-
-		y_ = titr_model(LT , K , S + 0.5 * step[4])  # perturbed
-		resExp_ = _resExp(y_obs, y_, relative_err)
-		PPR[4] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))]) 
-
+		PPR[j] = np.array([np.exp(-0.5 * (resExp.item() - resExp_.item()))])
 
 	PPR[PPR>1] = 1 / PPR[PPR>1]
-	PPR_target = PPR_target * (RR / RR_opt)
+	PPR_target = PPR_target.copy() * (RR / RR_opt)  # scalar 
 	if PPR_target < 1e-6:
-		PPR_target = 1e-6
+		PPR_target = np.array(1e-6)
 
 	PPR_diff = np.array(PPR_target) - np.array(PPR)
+
 	jj = -1
 	for ppr_d in PPR_diff:
 		jj += 1
@@ -525,64 +454,29 @@ def _adjust_step(titr_model, x, y_obs, step, RR, PPR_target, relative_err, RR_op
 		else:
 			step[jj] = step[jj] * np.exp((- ppr_d) / (1 - PPR_target)*2) 
 
-	return step
+	return step, PPR_target
 
-
-
-
-
-def _adjustOutOfRange(x, lb, ub):
-
-	lb = np.array(lb)
-	ub = np.array(ub)
-
-	if x.size != lb.size != ub.size:
-		raise ValueError('sizes of parameters and lower and upper bounds must be the same')
-	tmp = x.copy()
-	tmplb = lb.copy()
-	tmpub = ub.copy()
-
-	if x.size in [2 ,3]:
-		tmp[1] = np.log10(tmp[1])
-		tmplb[1] = np.log10(tmplb[1])
-		tmpub[1] = np.log10(tmpub[1])
-
-	if x.size in [4 ,5]:
-		tmp[2:4] = np.log10(tmp[2:4])
-		tmplb[2:4] = np.log10(tmplb[2:4])
-		tmpub[2:4] = np.log10(tmpub[2:4])
-
-
-	tmp[tmp > tmpub] = 2*tmpub[tmp > tmpub] - tmp[tmp > tmpub] 
-	tmp[tmp < tmplb] = 2*tmplb[tmp < tmplb] - tmp[tmp < tmplb]
-
-	if x.size in [2 ,3]: 
-		tmp[1] = 10**tmp[1]
-
-	if x.size in [4 ,5]:	
-		tmp[2:4] = 10**tmp[2:4]
-
-	return tmp
 
 
 def _x_toLKS(x):
+	# this function is used to parse and transform data for passing to the titration models
 	x = np.array(x)
 	if x.size == 2:
-		LT = x[0].copy()
-		K = 10**x[1].copy()
+		LT = x[0:1].copy()
+		K = 10**x[1:2].copy()
 		S = None
 	elif x.size == 3:
-		LT = x[0].copy()
-		K = 10**x[1].copy()
-		S = x[2].copy()
+		LT = x[0:1].copy()
+		K = 10**x[1:2].copy()
+		S = x[2:].copy()
 	elif x.size == 4:
 		LT = x[:2].copy()
-		K = x[2:].copy()
+		K = 10**x[2:4].copy()
 		S = None
 	elif x.size == 5:
 		LT = x[:2].copy()
-		K = 10**x[2:].copy()
-		S = x[-1].copy()
+		K = 10**x[2:4].copy()
+		S = x[4:].copy()
 	else:
 		raise ValueError('this functions accept an array with 2 to 5 elements')
 	return LT, K, S
@@ -592,27 +486,31 @@ def _new_point(x, step):
 	step = np.array(step)
 	if x.size != step.size:
 		raise ValueError('the same number of steps must be known for the number of parameters')
-	xp = np.zeros_like(x)
-	if x.size == 2:
-		xp[0] = x[0] + step[0] * st.uniform(-1,2).rvs(1)  
-		xp[1] = 10**(np.log10(x[1]) + step[1] * st.uniform(-1,2).rvs(1))
-	if x.size == 3:
-		xp[0] = x[0] + step[0] * st.uniform(-1,2).rvs(1)
-		xp[1] = 10**(np.log10(x[1]) + step[1] * st.uniform(-1,2).rvs(1))
-		xp[2] = x[2] + step[2] * st.uniform(-1,2).rvs(1)
-	if x.size == 4:
-		xp[0] = x[0] + step[0] * st.uniform(-1,2).rvs(1)
-		xp[1] = x[1] + step[1] * st.uniform(-1,2).rvs(1)
-		xp[2] = 10**(np.log10(x[2]) + step[2] * st.uniform(-1,2).rvs(1))
-		xp[3] = 10**(np.log10(x[3]) + step[3] * st.uniform(-1,2).rvs(1))
-	if x.size == 5:
-		xp[0] = x[0] + step[0] * st.uniform(-1,2).rvs(1)
-		xp[1] = x[1] + step[1] * st.uniform(-1,2).rvs(1)
-		xp[2] = 10**(np.log10(x[2]) + step[2] * st.uniform(-1,2).rvs(1))
-		xp[3] = 10**(np.log10(x[3]) + step[3] * st.uniform(-1,2).rvs(1))
-		xp[4] = x[4] + step[4] * st.uniform(-1,2).rvs(1)
+
+	xp = x.copy() + step * st.uniform(-1,2).rvs(x.size)  
 
 	return xp 
+
+
+def _adjustOutOfRange(x, lb, ub):
+
+	lb = np.array(lb)
+	ub = np.array(ub)
+	x = np.array(x)
+
+	if x.size != lb.size != ub.size:
+		raise ValueError('sizes of parameters and lower and upper bounds must be the same')
+
+	# to make sure the original values won't be modified	
+	tmp = x.copy()
+	tmplb = lb.copy()
+	tmpub = ub.copy()
+
+
+	tmp[tmp > tmpub] = 2*tmpub[tmp > tmpub] - tmp[tmp > tmpub] 
+	tmp[tmp < tmplb] = 2*tmplb[tmp < tmplb] - tmp[tmp < tmplb]
+
+	return tmp
 
 
 def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL = None, niter = 60000):
@@ -620,21 +518,19 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 		MT ::  total metal concentration at titration points
 		y_obs :: signal from experiment"""
 
-	samples = np.zeros((niter+1, x0.size))
+	samples = np.zeros((niter, x0.size))
 	samples[0,:] = x0
 	NM = x0.size # number of parameters 
-	PPR_target = (1/2)**(1/NM)
+	PPR_target = np.array((1/2)**(1/NM))  # initial value; scalar; update after each step adjustment
 	RR_opt = 0.766 # optimizal rejection rate
 
-
+	naccept = 0
 
 	if S is None:
 		LT_0, K_0, S_0 = _x_toLKS(x0)	
 	else:
 		LT_0, K_0, _ = _x_toLKS(x0)	
 		S_0 = S
-		y_0 = titr_model(LT_0, K_0, S_0)
-
 
 	n_lig = LT_0.size
 
@@ -646,17 +542,18 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 		raise ValueError('This model requires {:d} value(s) for lower bound, upper bound, step0, and x0!'.format(2 * n_lig))
 	
 
-
-
-
 	if  (AL is None) and (KAL is None):
 		# method is ASV: M_free * S is the observed signal
 		titr_model  = lambda LT, K, S : S * _titr_simulate(MT, LT, K, n_lig, AL, KAL)[:,0]
 		for i in range(1, niter):
 
+			if i==1:
+				y_0 = titr_model(LT_0, K_0, S_0)
+
 			if (i < 1000 and (i % 100) == 0) or (i >= 1000 and (i % 1000) == 0):
 				RR = (i - naccept) / i
-				step0 =  _adjust_step(titr_model, x0, y_obs, step0, RR, PPR_target, relative_err, RR_opt)
+				step0, PPR_target =  _adjust_step(titr_model, x0, S, y_obs, step0, RR, PPR_target, relative_err)
+				print(RR)
 			# proposing a new point (x):
 			xp = _new_point(x0, step0)
 			# bouncing out-of-range back into the boundaries:
@@ -666,11 +563,11 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 			else:
 				LT_p, K_p, _ = _x_toLKS(xp)
 				S_p = S_0
-			
+
 			y_p = titr_model(LT_p, K_p, S_p)
 
-			resExp0 = _resExp(y_obs, y_0, relative_err)
-			resExpp = _resExp(y_obs, y_p, relative_err)
+			resExp_0 = _resExp(y_obs, y_0, relative_err)
+			resExp_p = _resExp(y_obs, y_p, relative_err)
 			rho = min(1, np.array([np.exp(-0.5 * (resExp_p.item() - resExp_0.item()))]))  # we grab item to make sure the result is scalar
 			u = np.random.uniform()
 
@@ -686,17 +583,13 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 		# method is ACSV: MAL * S is the observed signal
 		titr_model  = lambda LT, K, S: S * _titr_simulate(MT, LT, K, n_lig, AL, KAL)[:,2]
 		for i in range(1, niter):
-			if i==0:
-				if S is None:
-					LT_0, K_0, S_0 = _x_toLKS(x0)	
-				else:
-					LT_0, K_0, _ = _x_toLKS(x0)	
-
+			if i==1:
 				y_0 = titr_model(LT_0, K_0, S_0)
 
 			if (i < 1000 and (i % 100) == 0) or (i >= 1000 and (i % 1000) == 0):
 				RR = (i - naccept) / i
-				step0 =  _adjust_step(titr_model, x0, y_obs, step0, RR, PPR_target, relative_err, RR_opt )
+				step0, PPR_target =  _adjust_step(titr_model, x0, S, y_obs, step0, RR, PPR_target, relative_err)
+				print(RR)
 			# proposing a new point (x)
 			xp = _new_point(x0, step0)
 			# bouncing out-of-range back into the boundaries
@@ -708,8 +601,8 @@ def _mcmc(x0, MT, y_obs, lb, ub, step0, relative_err, S = None, AL = None, KAL =
 				S_p = S_0
 			y_p = titr_model(LT_p, K_p, S_p)
 
-			resExp0 = _resExp(y_obs, y_0, relative_err)
-			resExpp = _resExp(y_obs, y_p, relative_err)
+			resExp_0 = _resExp(y_obs, y_0, relative_err)
+			resExp_p = _resExp(y_obs, y_p, relative_err)
 			rho = min(1, np.array([np.exp(-0.5 * (resExp_p.item() - resExp_0.item()))]))
 			u = np.random.uniform()
 
