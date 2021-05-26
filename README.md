@@ -4,4 +4,4 @@
 Bayesian Inversion of Complexometric Titration Data 
 
 
-<img src="Figure_1.pdf" alt="fig1" style="height: 200px; width:200px;"/>
+<img src="Figure_1.png" alt="fig1" style="height: 200px; width:200px;"/>
