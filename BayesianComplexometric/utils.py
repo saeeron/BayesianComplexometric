@@ -405,12 +405,19 @@ def _resExp(y_obs, y_pred, relative_err = 0.03):
 
 def _hyb_optim(y_obs,  MT, lb, ub, S, n_lig, AL, KAL):
 	# this hybrid loss function optimization when S is unknown
-
-	x = _optim(y_obs, MT, lb , ub, S, LossFunc = 'Gerringa', DeviationType = 'mse', n_lig = n_lig, AL = AL , KAL = KAL, optimizerKW = {'maxiter' : 100})
-	x_ = _optim(y_obs, MT, lb[:-1] , ub[:-1], S = x[-1], LossFunc = 'Scatchard', DeviationType = 'mse', n_lig = n_lig, AL = AL , KAL = KAL, optimizerKW = {'maxiter' : 100})
-	x[:-1] = x_
-
-	return x
+	lb = np.array(lb, dtype = 'float')
+	ub = np.array(ub, dtype = 'float')
+	x0 = _optim(y_obs, MT, lb , ub, S, LossFunc = 'Gerringa', DeviationType = 'mse', n_lig = n_lig, AL = AL , KAL = KAL, optimizerKW = {'maxiter' : 100})
+	for i in range(5):
+		x = _optim(y_obs, MT, lb[:-1] , ub[:-1], S = x0[-1], LossFunc = 'Scatchard', DeviationType = 'mse', n_lig = n_lig, AL = AL , KAL = KAL, optimizerKW = {'maxiter' : 100})
+		x0[:-1] = x
+		lb_ = lb.copy()
+		ub_ = ub.copy()
+		lb_[:-1] =  x0[:-1].copy() * 0.999
+		ub_[:-1] =  x0[:-1].copy() * 1.001
+		x = _optim(y_obs, MT, lb_ , ub_, S, LossFunc = 'Gerringa', DeviationType = 'mse', n_lig = n_lig, AL = AL , KAL = KAL, optimizerKW = {'maxiter' : 100})
+		x0 = x.copy()
+	return x0
 
 
 def _adjust_step(titr_model, x, S, y_obs, step, RR, PPR_target, relative_err, RR_opt = 0.766):

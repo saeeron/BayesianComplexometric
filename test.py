@@ -18,7 +18,7 @@ MT_ = np.linspace(0.1, 14, 12)
 y_ = _titr_simulate(MT_, LT, K, n_lig = 2)[:,0]
 
 
-y_obs = y_ + y_*0.03*np.random.normal(0, 1, MT_.size)
+y_obs = y_ + y_*0.00*np.random.normal(0, 1, MT_.size)
 
 
 """
@@ -34,27 +34,17 @@ plt.ylabel('free Metal [nM]')
 plt.show()
 """
 
-lb =  [1, 5, 13, 11 , 0.1]
-ub =  [4, 10, 15, 14, 1]
-
-#lb =  [1, 11, 0.1]
-#ub =  [10, 15, 1]
-_hyb_optim(y_obs * 0.6,  MT = MT_, lb =lb, ub = ub, S = None, n_lig =2, AL = None, KAL= None)
-
-x = _optim(y_obs * 0.6, MT = MT_, lb = lb, ub = ub, S = None, LossFunc = 'Gerringa', DeviationType = 'mse', n_lig = 2, AL = None, KAL = None, \
-			optimizerKW = {'maxiter' : 100})
+lb =  np.array([1, 5, 13, 11 , 0.1], dtype = 'float')
+ub =  np.array([4, 10, 15, 14, 1], dtype = 'float')
 
 
-x2 = _optim(y_obs * 0.6, MT = MT_, lb = lb[:-1], ub = ub[:-1], S = x[-1], LossFunc = 'Scatchard', DeviationType = 'mse', n_lig = 2, AL = None, KAL = None, \
-			optimizerKW = {'maxiter' : 100})
-
-
+x = _hyb_optim(y_obs * 0.6,  MT = MT_, lb =lb, ub = ub, S = None, n_lig =2, AL = None, KAL= None)
 
 print(x)
 
 #x = np.array([2, 8, 14, 12])
 
-samples = _mcmc(x, MT_, y_obs * 0.6,  lb, ub, [0.01 , 0.01, 0.002, 0.002, 0.1], 0.03, S = None, AL = None, KAL = None, niter = 100000)
+samples = _mcmc(x, MT_, y_obs * 0.6,  lb, ub, [0.01 , 0.01, 0.002, 0.002, 0.1], relative_err = 0.03, S = None, AL = None, KAL = None, niter = 100000)
 
 
 #samples = _mcmc(x , MT_, y_obs * 0.6,  [1, 5, 13, 11 , 0.1], [4, 10, 15, 14, 1], [0.01 , 0.01, 0.002, 0.002, 0.001], 0.03, S = None, AL = None, KAL = None, niter = 200000)
@@ -62,14 +52,16 @@ samples = _mcmc(x, MT_, y_obs * 0.6,  lb, ub, [0.01 , 0.01, 0.002, 0.002, 0.1], 
 plt.subplot(5,1,1)
 plt.plot(samples[20000:,0], 'g' , linewidth = 0.5)
 
+
 plt.subplot(5,1,2)
 plt.plot(samples[20000:,1], 'g' , linewidth = 0.5)
 
 
-plt.hist(samples[20000:,3],100, color='g')
+plt.hist(samples[20000:,4],100, color='g')
 
 plt.show()
 
+plt.scatter(samples[20000:,0], samples[20000:,4])
 
 
 """
