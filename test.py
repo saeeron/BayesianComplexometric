@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.optimize import dual_annealing 
 from functools import partial
+import pandas as pd
 
 
 from BayesianComplexometric.utils import _titr_simulate, _optim, _mcmc, _hyb_optim
@@ -44,10 +45,20 @@ print(x)
 
 #x = np.array([2, 8, 14, 12])
 
-samples = _mcmc(x, MT_, y_obs * 0.6,  lb, ub, [0.01 , 0.01, 0.002, 0.002, 0.1], relative_err = 0.03, S = None, AL = None, KAL = None, niter = 100000)
+samples = _mcmc(x, MT_, y_obs * 0.6,  lb, ub, [0.01 , 0.01, 0.002, 0.002, 0.1], relative_err = 0.06, S = None, AL = None, KAL = None, niter = 100000)
 
 
 #samples = _mcmc(x , MT_, y_obs * 0.6,  [1, 5, 13, 11 , 0.1], [4, 10, 15, 14, 1], [0.01 , 0.01, 0.002, 0.002, 0.001], 0.03, S = None, AL = None, KAL = None, niter = 200000)
+
+
+H, x_edge, y_edge = np.histogram2d(samples[20000:,3],samples[20000:,4],bins = 50, density=True)
+H[H==0] = np.nan
+plt.contourf(x_edge[:-1], y_edge[:-1], H.T, cmap="viridis")
+plt.xlabel('K2')
+plt.ylabel('S')
+plt.show()
+
+
 
 plt.subplot(5,1,1)
 plt.plot(samples[20000:,0], 'g' , linewidth = 0.5)
@@ -63,6 +74,12 @@ plt.show()
 
 plt.scatter(samples[20000:,0], samples[20000:,4])
 
+from pandas.plotting import scatter_matrix
+
+df = pd.DataFrame(samples, columns = ['L1','L2','K1','K2','S'])
+
+scatter_matrix(df, alpha=0.1, diagonal="kde")
+plt.show()
 
 """
 
