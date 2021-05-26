@@ -1,5 +1,4 @@
-![alt text for screen readers](PyBICOMP_logo.png "Logo")
 
-<img src="PyBICOMP_logo.png" alt="MarineGEO circle logo" style="height: 100px; width:100px;"/>
+<img src="PyBICOMP_logo.png" alt="Logo" style="height: 200px; width:200px;"/>
 
 Bayesian Inversion of Complexometric Titration Data 
