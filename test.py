@@ -1,13 +1,6 @@
 import numpy as np 
-from scipy.optimize import root, root_scalar, fsolve, brentq
-from scipy.integrate import simps
-from scipy.linalg import block_diag, det, eig
-from scipy import stats as st
 import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.optimize import dual_annealing 
-from functools import partial
-import pandas as pd
+
 
 
 from BayesianComplexometric.utils import _titr_simulate, _optim, _mcmc, _hyb_optim
@@ -15,37 +8,31 @@ from BayesianComplexometric.utils import _titr_simulate, _optim, _mcmc, _hyb_opt
 LT = np.array([2, 8])
 K = np.array([1e14, 1e12])
 MT_ = np.linspace(0.1, 14, 12)
+S = 0.6
 
 y_ = _titr_simulate(MT_, LT, K, n_lig = 2)[:,0]
+y_obs = S*(y_ + y_*0.03*np.random.normal(0, 1, y_.size))
 
-
-y_obs = y_ + y_*0.00*np.random.normal(0, 1, MT_.size)
-
-
-"""
 
 plt.figure(figsize=[4 , 3])
-
-plt.scatter(MT_, y_)
-plt.scatter(MT_, y_obs)
-plt.legend(['modeled','modeled + noise'])
+plt.scatter(MT_, y_obs, alpha = 0.4)
+plt.legend(['Model + Noise'])
 plt.xlabel('total Metal [nM]')
-plt.ylabel('free Metal [nM]')
+plt.ylabel('electric current (raw signal) ')
 
 plt.show()
-"""
+
 
 lb =  np.array([1, 5, 13, 11 , 0.1], dtype = 'float')
 ub =  np.array([4, 10, 15, 14, 1], dtype = 'float')
 
-
-x = _hyb_optim(y_obs * 0.6,  MT = MT_, lb =lb, ub = ub, S = None, n_lig =2, AL = None, KAL= None)
+x = _hyb_optim(y_obs,  MT = MT_, lb =lb, ub = ub, S = None, n_lig =2, AL = None, KAL= None)
 
 print(x)
 
 #x = np.array([2, 8, 14, 12])
 
-samples = _mcmc(x, MT_, y_obs * 0.6,  lb, ub, [0.01 , 0.01, 0.002, 0.002, 0.1], relative_err = 0.06, S = None, AL = None, KAL = None, niter = 100000)
+samples = _mcmc(x, MT_, y_obs * 0.6,  lb, ub, [0.01 , 0.01, 0.002, 0.002, 0.1], relative_err = 0.03, S = None, AL = None, KAL = None, niter = 100000)
 
 
 #samples = _mcmc(x , MT_, y_obs * 0.6,  [1, 5, 13, 11 , 0.1], [4, 10, 15, 14, 1], [0.01 , 0.01, 0.002, 0.002, 0.001], 0.03, S = None, AL = None, KAL = None, niter = 200000)
