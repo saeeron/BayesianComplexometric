@@ -32,6 +32,8 @@ plt.ylabel('electric current (raw signal) ')
 plt.show()
 ```   
 The simulated curve: 
+
+
 <img src="Figure_2.png" alt="fig1" style="height: 200px; width:200px;"/>
 
 Now, we use our package and the simulated **Model + Noise** to back calculate our 5 above-preset parameters. We first find a single set of optimum parameters: 
@@ -46,7 +48,7 @@ As you see single-point optimization can back-calculate the preset parameters wi
 ```python
 samples = _mcmc(x, MT_, y_obs * 0.6,  lb, ub, [0.01 , 0.01, 0.002, 0.002, 0.1], relative_err = 0.06, S = None, AL = None, KAL = None, niter = 100000)
 ``` 
-The resulting probability distributions of parameters: 
+The resulting probability distributions of parameters stored in `samples`: 
 
 <img src="Figure_1.png" alt="fig1" style="height: 200px; width:200px;"/>
 
